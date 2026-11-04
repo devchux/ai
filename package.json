@@ -1,0 +1,102 @@
+{
+  "name": "@nestjs/ai",
+  "version": "0.0.1",
+  "description": "Nest - modern, fast, powerful node.js web framework (@ai)",
+  "author": "Kamil Mysliwiec",
+  "license": "MIT",
+  "url": "https://github.com/nestjs/ai#readme",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./testing": {
+      "types": "./dist/testing/index.d.ts",
+      "import": "./dist/testing/index.js",
+      "default": "./dist/testing/index.js"
+    },
+    "./workflows": {
+      "types": "./dist/workflows/index.d.ts",
+      "import": "./dist/workflows/index.js",
+      "default": "./dist/workflows/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "rm -rf dist && tsc -p tsconfig.build.json",
+    "format": "prettier --write \"**/*.ts\"",
+    "lint": "oxlint lib/",
+    "prepublish:npm": "npm run build",
+    "publish:npm": "npm publish --access public",
+    "prepublish:next": "npm run build",
+    "publish:next": "npm publish --access public --tag next",
+    "test:e2e": "vitest run",
+    "test:e2e:dev": "vitest",
+    "prerelease": "npm run build",
+    "release": "release-it",
+    "prepare": "husky"
+  },
+  "devDependencies": {
+    "@ai-sdk/anthropic": "4.0.96",
+    "@commitlint/cli": "21.2.4",
+    "@commitlint/config-angular": "21.2.4",
+    "@modelcontextprotocol/client": "2.4.0",
+    "@modelcontextprotocol/server": "2.4.0",
+    "@nestjs/authentication": "0.1.4",
+    "@nestjs/authorization": "0.1.2",
+    "@nestjs/common": "12.3.3",
+    "@nestjs/core": "12.3.3",
+    "@nestjs/mcp": "^0.0.3",
+    "@nestjs/platform-express": "12.3.3",
+    "@nestjs/platform-fastify": "12.3.3",
+    "@nestjs/platform-node": "12.3.3",
+    "@nestjs/resilience": "0.0.3",
+    "@nestjs/testing": "12.3.3",
+    "@nestjs/workflows": "0.0.4",
+    "@types/node": "24.19.2",
+    "ai": "7.0.162",
+    "husky": "9.1.7",
+    "lint-staged": "17.6.0",
+    "oxlint": "1.91.0",
+    "prettier": "3.9.10",
+    "reflect-metadata": "0.2.2",
+    "release-it": "21.1.2",
+    "rxjs": "7.8.2",
+    "typescript": "7.0.2",
+    "vite": "8.3.5",
+    "vitest": "5.1.0",
+    "zod": "4.6.7"
+  },
+  "peerDependencies": {
+    "@nestjs/common": "^12.0.0",
+    "@nestjs/core": "^12.0.0",
+    "@nestjs/resilience": ">=0.0.3 <1",
+    "@nestjs/testing": "^12.0.0",
+    "@nestjs/workflows": ">=0.0.4 <1",
+    "ai": "^7.0.0",
+    "reflect-metadata": "^0.1.13 || ^0.2.0",
+    "rxjs": "^7.1.0"
+  },
+  "peerDependenciesMeta": {
+    "@nestjs/testing": {
+      "optional": true
+    },
+    "@nestjs/workflows": {
+      "optional": true
+    }
+  },
+  "lint-staged": {
+    "**/*.{ts,json}": []
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/nestjs/ai"
+  }
+}
