@@ -28,8 +28,8 @@ export interface AiResilienceSettings {
   /**
    * The longest a model call may take to answer: its whole response for `generateText()` and
    * `generateObject()`, its first chunk for `streamText()`, until its tools start for a step that
-   * calls them. For embeddings, the complete operation, including all batches. Applied to each
-   * attempt, as a `TimeoutPolicy`. Default `'60s'`; `false` for none.
+   * calls them. For embeddings, one provider request. Applied to each attempt, as a
+   * `TimeoutPolicy`. Default `'60s'`; `false` for none.
    */
   timeout?: Duration | false;
   /**
@@ -38,14 +38,16 @@ export interface AiResilienceSettings {
    * jitter), `retryIf`. Retried by default: what the provider marks retryable (408, 409, 429, 5xx
    * and network failures) and timeouts; a `retry-after` the provider sends is honored, and one
    * longer than `backoff.maxDelay` exhausts this model's retries. Language-model calls then try a
-   * configured fallback; embedding calls fail. `false` for none.
+   * configured fallback; embedding calls fail. An embedding call retries only the provider request
+   * that failed. `false` for none.
    */
   retry?: RetryOptions | false;
   /**
    * A policy of your own (`ResiliencePolicy.wrap(breaker, retry, timeout)`), or the name of a
    * preset of `ResilienceService` (`ResilienceModule.forRoot({ presets })`), in place of `retry`
    * and `timeout`: a circuit breaker or a bulkhead shared with the rest of the application.
-   * Language-model fallbacks, when configured, are applied around it.
+   * Language-model fallbacks, when configured, are applied around it. An embedding call runs it
+   * around each provider request, so a bulkhead or a rate limit counts requests.
    */
   resilience?: ResiliencePolicy | string;
 }

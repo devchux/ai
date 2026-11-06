@@ -1,5 +1,13 @@
 import type { ResiliencePolicy } from '@nestjs/resilience';
-import { embed, embedMany, type EmbedManyResult, type EmbedResult } from 'ai';
+import {
+  embed,
+  embedMany,
+  gateway,
+  wrapEmbeddingModel,
+  type EmbeddingModel,
+  type EmbedManyResult,
+  type EmbedResult,
+} from 'ai';
 import { AiConfigurationError } from '../errors/ai.errors.js';
 import type {
   AiEmbeddingCallOptions,
@@ -81,9 +89,10 @@ interface EmbeddingExecution<R> {
 }
 
 /**
- * Nest retries the whole SDK operation, not individual chunks. Abort sibling requests as soon as a
- * batch fails, so that a failed attempt does not keep consuming provider capacity while the next
- * attempt starts.
+ * The SDK splits `values` into provider requests. The policy runs around each of them, through the
+ * SDK's middleware, so a timeout or a retry covers one request and never repeats the others. When a
+ * request fails for good, its siblings are aborted, so that a failed operation does not keep
+ * consuming provider capacity.
  */
 export function runEmbedding(
   plan: EmbeddingPlan,
@@ -109,32 +118,44 @@ export async function runEmbedding(
     );
   }
   const values = many ? [...input.values] : undefined;
-  const { value: result, attempts } = await runStep(plan, async (attempt) => {
-    const controller = new AbortController();
-    const signal = AbortSignal.any([attempt.signal, controller.signal]);
-    try {
-      signal.throwIfAborted();
-      const settings = {
-        model: attempt.model.model,
-        headers: plan.settings.headers,
-        providerOptions: plan.settings.providerOptions,
-        abortSignal: signal,
-        maxRetries: 0,
-      };
-      const result =
-        values !== undefined
-          ? await embedMany({
-              ...settings,
-              values,
-              maxParallelCalls: plan.settings.maxParallelCalls,
-            })
-          : await embed({ ...settings, value: (input as { value: string }).value });
-      signal.throwIfAborted();
-      return result;
-    } finally {
-      controller.abort();
-    }
+  const controller = new AbortController();
+  const signal = AbortSignal.any([plan.signal, controller.signal]);
+  let attempts = 0;
+  const wrapped = wrapEmbeddingModel({
+    model: modelObject(plan.model.model),
+    middleware: {
+      wrapEmbed: async ({ params, model }) => {
+        const { value, attempts: used } = await runStep({ ...plan, signal }, async (attempt) => {
+          attempt.signal.throwIfAborted();
+          return model.doEmbed({ ...params, abortSignal: attempt.signal });
+        });
+        attempts += used;
+        return value;
+      },
+    },
   });
+  let result: EmbedResult | EmbedManyResult;
+  try {
+    signal.throwIfAborted();
+    const settings = {
+      model: wrapped,
+      headers: plan.settings.headers,
+      providerOptions: plan.settings.providerOptions,
+      abortSignal: signal,
+      maxRetries: 0,
+    };
+    result =
+      values !== undefined
+        ? await embedMany({
+            ...settings,
+            values,
+            maxParallelCalls: plan.settings.maxParallelCalls,
+          })
+        : await embed({ ...settings, value: (input as { value: string }).value });
+    signal.throwIfAborted();
+  } finally {
+    controller.abort();
+  }
   const pricing = plan.model.pricing;
   const cost =
     pricing && Number.isFinite(result.usage.tokens)
@@ -155,4 +176,20 @@ export async function runEmbedding(
       ...(cost !== undefined && { cost }),
     },
   };
+}
+
+type ModelObject = Parameters<typeof wrapEmbeddingModel>[0]['model'];
+
+/**
+ * `wrapEmbeddingModel()` takes model objects. An id resolves as the SDK resolves it: with its
+ * default provider, the gateway unless the application set another.
+ */
+function modelObject(model: EmbeddingModel): ModelObject {
+  if (typeof model !== 'string') {
+    return model as ModelObject;
+  }
+  const provider = (globalThis.AI_SDK_DEFAULT_PROVIDER ?? gateway) as unknown as {
+    embeddingModel(modelId: string): ModelObject;
+  };
+  return provider.embeddingModel(model);
 }

@@ -205,19 +205,18 @@ describe('embedding calls', () => {
         values.map((value) => [Number(value), Number(value) + 0.5]),
       );
       expect(result.usage).toEqual({ tokens: 6 });
-      expect(result.attempts).toBe(1);
+      expect(result.attempts).toBe(values.length);
       expect(peak).toBe(expected);
       expect(model.calls.map((entry) => entry.values)).toEqual(values.map((value) => [value]));
     },
   );
 
-  it('retries whole SDK batch operations, including earlier successful batches', async () => {
+  it('retries only the provider request that failed', async () => {
     const model = new FakeEmbeddingModel(
       [
         { embeddings: [[1]], usage: { tokens: 2 } },
         providerError(503),
-        { embeddings: [[3]], usage: { tokens: 2 } },
-        { embeddings: [[4]], usage: { tokens: 3 } },
+        { embeddings: [[2]], usage: { tokens: 3 } },
       ],
       { maxEmbeddingsPerCall: 1, supportsParallelCalls: false },
     );
@@ -229,17 +228,35 @@ describe('embedding calls', () => {
     });
     moduleRef = ref;
     const result = await ai.embedMany({ values: ['a', 'b'] });
-    expect(result.embeddings).toEqual([[3], [4]]);
+    expect(result.embeddings).toEqual([[1], [2]]);
     expect(result.usage).toEqual({ tokens: 5 });
-    expect(result.attempts).toBe(2);
-    expect(model.calls.map((call) => call.values)).toEqual([['a'], ['b'], ['a'], ['b']]);
+    expect(result.attempts).toBe(3);
+    expect(model.calls.map((call) => call.values)).toEqual([['a'], ['b'], ['b']]);
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({
       operation: 'embedMany',
       inputCount: 2,
-      attempts: 2,
+      attempts: 3,
       usage: { tokens: 5 },
     });
+  });
+
+  it('rejects with the attempts of the request that keeps failing', async () => {
+    const model = new FakeEmbeddingModel(
+      ({ values }) => (values[0] === 'b' ? providerError(503) : { embeddings: [[1]] }),
+      { maxEmbeddingsPerCall: 1, supportsParallelCalls: false },
+    );
+    const { moduleRef: ref, ai } = await createAi({
+      embeddingModels: { default: model },
+      embeddingDefaults: { retry: noWait },
+    });
+    moduleRef = ref;
+    const error = (await ai
+      .embedMany({ values: ['a', 'b', 'c'] })
+      .catch((error: unknown) => error)) as AiModelError;
+    expect(error).toBeInstanceOf(AiModelError);
+    expect(error.attempts.map((attempt) => attempt.attempt)).toEqual([1, 2, 3]);
+    expect(model.calls.map((call) => call.values)).toEqual([['a'], ['b'], ['b'], ['b']]);
   });
 
   it('keeps retry counts under Nest control and does not retry client errors', async () => {
@@ -282,11 +299,11 @@ describe('embedding calls', () => {
     expect(model.calls[1].options.abortSignal?.aborted).toBe(true);
   });
 
-  it('shares custom bulkheads across operations while preserving SDK batch limits', async () => {
+  it('counts each provider request in a bulkhead shared across operations', async () => {
     const policy = new BulkheadPolicy({
       name: 'embedding-capacity',
       maxConcurrent: 1,
-      maxQueue: 1,
+      maxQueue: 3,
     });
     const release: Array<() => void> = [];
     const model = new FakeEmbeddingModel(
@@ -303,21 +320,80 @@ describe('embedding calls', () => {
     });
     moduleRef = ref;
     const first = ai.embedMany({ values: ['1', '2'] });
-    await vi.waitFor(() => expect(model.calls).toHaveLength(2));
     const second = ai.embedMany({ values: ['3', '4'] });
-    await vi.waitFor(() => expect(policy.queued).toBe(1));
+    await vi.waitFor(() => expect(policy.queued).toBe(3));
     expect(policy.active).toBe(1);
-    expect(model.calls).toHaveLength(2);
-    release.splice(0).forEach((resolve) => resolve());
+    expect(model.calls).toHaveLength(1);
+    for (let answered = 1; answered <= 4; answered++) {
+      await vi.waitFor(() => expect(release).toHaveLength(1));
+      expect(model.calls).toHaveLength(answered);
+      release.splice(0).forEach((resolve) => resolve());
+    }
     expect((await first).embeddings).toEqual([[1], [2]]);
-    await vi.waitFor(() => expect(model.calls).toHaveLength(4));
-    release.splice(0).forEach((resolve) => resolve());
     expect((await second).embeddings).toEqual([[3], [4]]);
     expect(policy.active).toBe(0);
     expect(policy.queued).toBe(0);
   });
 
-  it('times out whole-operation attempts and aborts their provider calls', async () => {
+  it('applies the timeout to each provider request, not the whole operation', async () => {
+    const model = new FakeEmbeddingModel(
+      ({ values }) => ({ embeddings: values.map(() => [1]), delay: 200 }),
+      { maxEmbeddingsPerCall: 1, supportsParallelCalls: false },
+    );
+    const { moduleRef: ref, ai } = await createAi({
+      embeddingModels: { default: model },
+      embeddingDefaults: { timeout: '500ms', retry: false },
+    });
+    moduleRef = ref;
+    const result = await ai.embedMany({ values: ['a', 'b', 'c', 'd'] });
+    expect(result.embeddings).toHaveLength(4);
+    expect(result.attempts).toBe(4);
+  });
+
+  it('retries a request that timed out without repeating the others', async () => {
+    let timedOut = false;
+    const model = new FakeEmbeddingModel(
+      ({ values }) => {
+        if (values[0] === 'b' && !timedOut) {
+          timedOut = true;
+          return { embeddings: [[2]], delay: 5_000 };
+        }
+        return { embeddings: [[values[0] === 'a' ? 1 : 2]] };
+      },
+      { maxEmbeddingsPerCall: 1, supportsParallelCalls: false },
+    );
+    const { moduleRef: ref, ai } = await createAi({
+      embeddingModels: { default: model },
+      embeddingDefaults: { timeout: '100ms', retry: { ...noWait, attempts: 2 } },
+    });
+    moduleRef = ref;
+    const result = await ai.embedMany({ values: ['a', 'b'] });
+    expect(result.embeddings).toEqual([[1], [2]]);
+    expect(result.attempts).toBe(3);
+    expect(model.calls.map((call) => call.values)).toEqual([['a'], ['b'], ['b']]);
+    expect(model.calls[1].options.abortSignal?.aborted).toBe(true);
+  });
+
+  it('resolves a registered model id with the SDK default provider', async () => {
+    const model = new FakeEmbeddingModel([{ embeddings: [[1]] }]);
+    const provider = { embeddingModel: vi.fn(() => model) };
+    vi.stubGlobal('AI_SDK_DEFAULT_PROVIDER', provider);
+    const { moduleRef: ref, ai } = await createAi({
+      embeddingModels: { default: 'openai/text-embedding-3-small' },
+    });
+    moduleRef = ref;
+    const result = await ai.embed({ value: 'hello' });
+    expect(result.embedding).toEqual([1]);
+    expect(result.model).toEqual({
+      name: 'default',
+      provider: 'gateway',
+      modelId: 'openai/text-embedding-3-small',
+    });
+    expect(provider.embeddingModel).toHaveBeenCalledWith('openai/text-embedding-3-small');
+    expect(model.calls).toHaveLength(1);
+  });
+
+  it('times out a provider request and aborts it', async () => {
     const model = new FakeEmbeddingModel(() => ({
       embeddings: [[1]],
       delay: 5_000,

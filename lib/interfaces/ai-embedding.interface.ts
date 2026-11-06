@@ -30,7 +30,10 @@ export type AiEmbeddingModelReference = string | Exclude<EmbeddingModel, string>
 export interface AiEmbeddingCallOptions extends AiEmbeddingSettings {
   /** Name in `embeddingModels` (default `'default'`), or a direct SDK model object. */
   model?: AiEmbeddingModelReference;
-  /** Cancels in-flight provider requests and retry backoff. */
+  /**
+   * Cancels in-flight provider requests and retry backoff. `timeout` covers one provider request,
+   * so this is how to set a deadline for the whole operation (`AbortSignal.timeout(ms)`).
+   */
   abortSignal?: AbortSignal;
   /** Names this operation in usage and resilience events. */
   label?: string;
@@ -46,11 +49,12 @@ export interface AiEmbedManyOptions extends AiEmbeddingCallOptions {
   values: string[];
 }
 
-/** SDK single-embedding result with the resolved model and operation-level attempt count. */
+/** SDK single-embedding result with the resolved model and attempt count. */
 export interface AiEmbedResult extends EmbedResult {
   model: AiModelInfo;
+  /** Provider requests made, retries included. */
   attempts: number;
-  /** Cost of the successful attempt's reported usage; absent without model pricing. */
+  /** Cost of the reported usage; absent without model pricing. */
   cost?: number;
 }
 
@@ -60,14 +64,16 @@ export interface AiEmbedResult extends EmbedResult {
  */
 export interface AiEmbedManyResult extends EmbedManyResult {
   model: AiModelInfo;
+  /** Provider requests made, retries included. */
   attempts: number;
-  /** Cost of the successful attempt's reported usage; absent without model pricing. */
+  /** Cost of the reported usage; absent without model pricing. */
   cost?: number;
 }
 
 /**
- * One successful embedding operation. Retries may repeat successful batches, so this is not a
- * billing ledger. Input contents and output vectors are excluded.
+ * One successful embedding operation. Not a billing ledger: a provider may bill a request that
+ * timed out, and an operation that fails reports nothing, including the requests it completed.
+ * Input contents and output vectors are excluded.
  */
 export interface AiEmbeddingUsageEvent {
   operation: 'embed' | 'embedMany';
@@ -75,7 +81,7 @@ export interface AiEmbeddingUsageEvent {
   model: AiModelInfo;
   inputCount: number;
   usage: EmbeddingModelUsage;
-  /** Number of whole-operation attempts, including the successful one. */
+  /** Provider requests made, retries included. */
   attempts: number;
   /** Total duration of the operation, including retries and backoff. */
   durationMs: number;

@@ -75,6 +75,7 @@ export class AiService {
 
   /**
    * Embeds strings in input order; the SDK batches requests, with bounded concurrency (default 4).
+   * Timeouts, retries and policies apply to each request.
    */
   async embedMany(options: AiEmbedManyOptions): Promise<AiEmbedManyResult> {
     const plan = createEmbeddingPlan(options, this.embeddingModels, this.options, (name) =>
