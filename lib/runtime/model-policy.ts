@@ -19,58 +19,77 @@ import {
   type AiAttemptFailure,
 } from '../errors/ai.errors.js';
 import type { ResolvedModel } from '../models/ai-models.service.js';
+import type { AiModelInfo } from '../interfaces/ai-result.interface.js';
 import { toMilliseconds } from '../utils/duration.util.js';
 
+/**
+ * The identity the policy layer needs; generation and embedding registries stay separately typed.
+ */
+export interface PolicyModel {
+  info: AiModelInfo;
+}
+
 /** What one attempt of a model call receives. */
-export interface StepAttempt {
-  model: ResolvedModel;
+export interface StepAttempt<M extends PolicyModel = ResolvedModel> {
+  model: M;
   /** 1-based, per model. */
   attempt: number;
   fallback: boolean;
   /** Aborted by the caller, or by the attempt's timeout (reason: `ResilienceTimeoutError`). */
   signal: AbortSignal;
-  /** Commits the attempt: no timeout, retry or fallback from now on. A step whose tools start calls it. */
+  /**
+   * Commits the attempt: no timeout, retry or fallback from now on. A step whose tools start calls
+   * it.
+   */
   commit(): void;
   /** Sends a stream chunk to the consumer, which commits the attempt too. */
   emit(chunk: unknown): void;
 }
 
 /** How a call's models are retried, timed out and replaced. Internal. */
-export interface PolicyPlan {
-  chain: ResolvedModel[];
+export interface PolicyPlan<M extends PolicyModel = ResolvedModel> {
+  chain: M[];
   /** The caller's signal. */
   signal: AbortSignal;
   /** Labels the policies' events (`source`). */
   source: string;
   /** The model's own policy: an application's, or the one built from its `retry` and `timeout`. */
-  policyFor(model: ResolvedModel): ResiliencePolicy | undefined;
+  policyFor(model: M): ResiliencePolicy | undefined;
   fallbackIf: (error: unknown) => boolean;
 }
 
-type StepEvent<T> = { type: 'commit' } | { type: 'chunk'; chunk: unknown } | { type: 'outcome'; value: T; attempt: StepAttempt };
+type StepEvent<T, M extends PolicyModel> =
+  | { type: 'commit' }
+  | { type: 'chunk'; chunk: unknown }
+  | { type: 'outcome'; value: T; attempt: StepAttempt<M> };
 
 const logger = new Logger('AiModule');
 
 /** `ai`'s argument errors, which no retry or other model fixes. */
-const CALLER_MISTAKES = new Set(['AI_InvalidPromptError', 'AI_InvalidArgumentError', 'AI_InvalidMessageRoleError', 'AI_MessageConversionError']);
+const CALLER_MISTAKES = new Set([
+  'AI_InvalidPromptError',
+  'AI_InvalidArgumentError',
+  'AI_InvalidMessageRoleError',
+  'AI_MessageConversionError',
+]);
 
 /**
- * Runs one model call (a step) under the call's policies: the model's own (retry, timeout, or the application's),
- * then each fallback model's, through `executeObservable()`, so that the outcome is committed once a chunk reaches
- * the consumer or the step's tools start. Chunks go to `emit` as they come. When the call fails: `AiModelError` with
- * every attempt, the caller's abort reason, or what is not a model failure (an `AiOutputError`, a circuit breaker's
- * rejection) as it is.
+ * Runs one model call (a step) under the call's policies: the model's own (retry, timeout, or the
+ * application's), then each fallback model's, through `executeObservable()`, so that the outcome is
+ * committed once a chunk reaches the consumer or the step's tools start. Chunks go to `emit` as
+ * they come. When the call fails: `AiModelError` with every attempt, the caller's abort reason, or
+ * what is not a model failure (an `AiOutputError`, a circuit breaker's rejection) as it is.
  */
-export function runStep<T>(
-  plan: PolicyPlan,
-  run: (attempt: StepAttempt) => Promise<T>,
+export function runStep<T, M extends PolicyModel = ResolvedModel>(
+  plan: PolicyPlan<M>,
+  run: (attempt: StepAttempt<M>) => Promise<T>,
   emit?: (chunk: unknown) => void,
-): Promise<{ value: T; attempt: StepAttempt; attempts: number }> {
+): Promise<{ value: T; attempt: StepAttempt<M>; attempts: number }> {
   const failures: AiAttemptFailure[] = [];
   let attempts = 0;
 
   const attemptsOf = (index: number) => (context: { signal: AbortSignal; attempt: number }) =>
-    new Observable<StepEvent<T>>((subscriber) => {
+    new Observable<StepEvent<T, M>>((subscriber) => {
       attempts++;
       const model = plan.chain[index]!;
       let settled = false;
@@ -80,10 +99,14 @@ export function runStep<T>(
           settled = true;
           // An attempt aborted for its timeout failed for the timeout, whatever the request threw.
           const reason = context.signal.aborted ? context.signal.reason : undefined;
-          failures.push({ model: model.info, attempt: context.attempt, error: reason instanceof ResilienceTimeoutError ? reason : unwrap(error) });
+          failures.push({
+            model: model.info,
+            attempt: context.attempt,
+            error: reason instanceof ResilienceTimeoutError ? reason : unwrap(error),
+          });
         }
       };
-      const attempt: StepAttempt = {
+      const attempt: StepAttempt<M> = {
         model,
         attempt: context.attempt,
         fallback: index > 0,
@@ -120,13 +143,23 @@ export function runStep<T>(
     const policies: ResiliencePolicy[] = [];
     if (index < plan.chain.length - 1) {
       policies.push(
-        new FallbackPolicy<StepEvent<T>>(
+        new FallbackPolicy<StepEvent<T, M>>(
           (error, context) => {
-            // A fallback that works must not hide why the model failed: a revoked key, a refused request.
-            logger.warn(`The model "${labelOf(model)}" failed (${describeError(error)}); falling back to "${labelOf(plan.chain[index + 1]!)}".`);
-            return policyAt(index + 1).executeObservable(attemptsOf(index + 1), { signal: context.signal, source: plan.source });
+            // A fallback that works must not hide why the model failed: a revoked key, a refused
+            // request.
+            logger.warn(
+              `The model "${labelOf(model)}" failed (${describeError(error)}); ` +
+                `falling back to "${labelOf(plan.chain[index + 1]!)}".`,
+            );
+            return policyAt(index + 1).executeObservable(attemptsOf(index + 1), {
+              signal: context.signal,
+              source: plan.source,
+            });
           },
-          { name: `${nameOf(model)} fallback`, handleIf: (error) => isFallbackable(error) && plan.fallbackIf(error) },
+          {
+            name: `${nameOf(model)} fallback`,
+            handleIf: (error) => isFallbackable(error) && plan.fallbackIf(error),
+          },
         ),
       );
     }
@@ -136,12 +169,13 @@ export function runStep<T>(
     return ResiliencePolicy.wrap(...policies);
   };
 
-  // Inside a resilient entrypoint (or `ResilienceContext.run()`), its attempt's signal stops the call too.
+  // Inside a resilient entrypoint (or `ResilienceContext.run()`), its attempt's signal stops the
+  // call too.
   const ambient = new ResilienceContext().signal;
   const signal = ambient ? AbortSignal.any([plan.signal, ambient]) : plan.signal;
 
   return new Promise((resolve, reject) => {
-    let outcome: { value: T; attempt: StepAttempt } | undefined;
+    let outcome: { value: T; attempt: StepAttempt<M> } | undefined;
     policyAt(0)
       .executeObservable(attemptsOf(0), { signal, source: plan.source })
       .subscribe({
@@ -153,25 +187,39 @@ export function runStep<T>(
           }
         },
         error: (error: unknown) => reject(finalError(error, failures, signal)),
-        complete: () => (outcome ? resolve({ ...outcome, attempts }) : reject(finalError(new Error('The model call ended without an answer'), failures, signal))),
+        complete: () =>
+          outcome
+            ? resolve({ ...outcome, attempts })
+            : reject(
+                finalError(new Error('The model call ended without an answer'), failures, signal),
+              ),
       });
   });
 }
 
 /**
- * The model's own policy from its settings: `RetryPolicy` (honoring the provider's `retry-after`) around
- * `TimeoutPolicy`, either one left out when it is `false`.
+ * The model's own policy from its settings: `RetryPolicy` (honoring the provider's `retry-after`)
+ * around `TimeoutPolicy`, either one left out when it is `false`.
  */
 export function modelPolicy(
-  model: ResolvedModel,
-  { retry, timeout }: { retry: RetryOptions | false | undefined; timeout: number | string | false | undefined },
+  model: PolicyModel,
+  {
+    retry,
+    timeout,
+  }: { retry: RetryOptions | false | undefined; timeout: number | string | false | undefined },
+  namespace = 'ai',
 ): ResiliencePolicy | undefined {
   const policies: ResiliencePolicy[] = [];
   if (retry !== false) {
-    policies.push(retryPolicy(model, retry ?? {}));
+    policies.push(retryPolicy(model, retry ?? {}, namespace));
   }
   if (timeout !== false) {
-    policies.push(new TimeoutPolicy({ timeout: toMilliseconds(timeout ?? DEFAULT_TIMEOUT, 'timeout'), name: `${nameOf(model)} timeout` }));
+    policies.push(
+      new TimeoutPolicy({
+        timeout: toMilliseconds(timeout ?? DEFAULT_TIMEOUT, 'timeout'),
+        name: `${nameOf(model, namespace)} timeout`,
+      }),
+    );
   }
   return policies.length > 0 ? ResiliencePolicy.wrap(...policies) : undefined;
 }
@@ -179,26 +227,34 @@ export function modelPolicy(
 const DEFAULT_TIMEOUT = '60s';
 const DEFAULT_BACKOFF = { delay: 1_000, factor: 2, maxDelay: 30_000 };
 
-function retryPolicy(model: ResolvedModel, retry: RetryOptions): RetryPolicy {
+function retryPolicy(model: PolicyModel, retry: RetryOptions, namespace: string): RetryPolicy {
   const backoff = retry.backoff;
   const maxDelay =
-    typeof backoff === 'object' && backoff.maxDelay !== undefined ? toMilliseconds(backoff.maxDelay, 'retry.backoff.maxDelay') : DEFAULT_BACKOFF.maxDelay;
+    typeof backoff === 'object' && backoff.maxDelay !== undefined
+      ? toMilliseconds(backoff.maxDelay, 'retry.backoff.maxDelay')
+      : DEFAULT_BACKOFF.maxDelay;
   const retryIf = retry.retryIf ?? isRetryable;
   return new RetryPolicy({
-    name: `${nameOf(model)} retry`,
+    name: `${nameOf(model, namespace)} retry`,
     attempts: retry.attempts ?? 3,
     ...(retry.retryOnResult && { retryOnResult: retry.retryOnResult }),
     // A provider that asks for a longer wait than the backoff allows: on to the fallback.
     retryIf: (error, attempt) =>
-      !(error instanceof AiOutputError) && (retryAfter(error) ?? 0) <= maxDelay && retryIf(error, attempt),
+      !(error instanceof AiOutputError) &&
+      (retryAfter(error) ?? 0) <= maxDelay &&
+      retryIf(error, attempt),
     backoff:
       typeof backoff === 'function'
         ? backoff
-        : (attempt, error) => retryAfter(error) ?? exponential(attempt, { ...DEFAULT_BACKOFF, ...backoff }),
+        : (attempt, error) =>
+            retryAfter(error) ?? exponential(attempt, { ...DEFAULT_BACKOFF, ...backoff }),
   });
 }
 
-/** What is retried by default: what the provider marks retryable (with network failures), and timeouts. */
+/**
+ * What is retried by default: what the provider marks retryable (with network failures), and
+ * timeouts.
+ */
 export function isRetryable(error: unknown): boolean {
   if (error instanceof ResilienceTimeoutError) {
     return true;
@@ -207,34 +263,62 @@ export function isRetryable(error: unknown): boolean {
 }
 
 function isFallbackable(error: unknown): boolean {
-  return !(error instanceof AiOutputError) && !(error instanceof Error && CALLER_MISTAKES.has(error.name));
+  return (
+    !(error instanceof AiOutputError) &&
+    !(error instanceof Error && CALLER_MISTAKES.has(error.name))
+  );
 }
 
 function finalError(error: unknown, failures: AiAttemptFailure[], signal: AbortSignal): unknown {
   if (signal.aborted) {
     return signal.reason;
   }
-  if (error instanceof AiOutputError || error instanceof AiBudgetExceededError || error instanceof AiConfigurationError) {
+  if (
+    error instanceof AiOutputError ||
+    error instanceof AiBudgetExceededError ||
+    error instanceof AiConfigurationError
+  ) {
     return error;
   }
   // A circuit breaker's, bulkhead's or rate limit's rejection: the application's policy said no.
   if (error instanceof ResilienceError && !(error instanceof ResilienceTimeoutError)) {
     return error;
   }
-  return new AiModelError(failures.length > 0 ? failures : [{ model: { provider: 'unknown', modelId: 'unknown' }, attempt: 1, error }]);
+  return new AiModelError(
+    failures.length > 0
+      ? failures
+      : [{ model: { provider: 'unknown', modelId: 'unknown' }, attempt: 1, error }],
+  );
 }
 
-/** `ai` wraps errors it retried itself; with `maxRetries: 0` it should not, but the last one is what failed. */
+/**
+ * `ai` wraps errors it retried itself; with `maxRetries: 0` it should not, but the last one is what
+ * failed.
+ */
 function unwrap(error: unknown): unknown {
   return RetryError.isInstance(error) ? (error.lastError ?? error) : error;
 }
 
 function exponential(
   attempt: number,
-  { delay, factor = 2, maxDelay, jitter = 'full' }: { delay?: number | string; factor?: number; maxDelay?: number | string; jitter?: 'full' | 'equal' | 'none' },
+  {
+    delay,
+    factor = 2,
+    maxDelay,
+    jitter = 'full',
+  }: {
+    delay?: number | string;
+    factor?: number;
+    maxDelay?: number | string;
+    jitter?: 'full' | 'equal' | 'none';
+  },
 ): number {
   const max = toMilliseconds(maxDelay ?? DEFAULT_BACKOFF.maxDelay, 'retry.backoff.maxDelay');
-  const computed = Math.min(max, toMilliseconds(delay ?? DEFAULT_BACKOFF.delay, 'retry.backoff.delay') * Math.max(1, factor) ** (attempt - 1));
+  const computed = Math.min(
+    max,
+    toMilliseconds(delay ?? DEFAULT_BACKOFF.delay, 'retry.backoff.delay') *
+      Math.max(1, factor) ** (attempt - 1),
+  );
   switch (jitter) {
     case 'none':
       return computed;
@@ -250,7 +334,9 @@ function retryAfter(error: unknown): number | undefined {
   if (!APICallError.isInstance(error) || !error.responseHeaders) {
     return undefined;
   }
-  const headers = Object.fromEntries(Object.entries(error.responseHeaders).map(([name, value]) => [name.toLowerCase(), value]));
+  const headers = Object.fromEntries(
+    Object.entries(error.responseHeaders).map(([name, value]) => [name.toLowerCase(), value]),
+  );
   const ms = Number.parseFloat(headers['retry-after-ms'] ?? '');
   if (Number.isFinite(ms) && ms >= 0) {
     return ms;
@@ -267,20 +353,24 @@ function retryAfter(error: unknown): number | undefined {
   return Number.isNaN(date) ? undefined : Math.max(0, date - Date.now());
 }
 
-function nameOf(model: ResolvedModel): string {
-  return `ai:${labelOf(model)}`;
+function nameOf(model: PolicyModel, namespace = 'ai'): string {
+  return `${namespace}:${labelOf(model)}`;
 }
 
-function labelOf(model: ResolvedModel): string {
+function labelOf(model: PolicyModel): string {
   return model.info.name ?? `${model.info.provider}:${model.info.modelId}`;
 }
 
-/** The error's class, its HTTP status if it has one, and its message: `APICallError, 401: Invalid API key`. */
+/**
+ * The error's class, its HTTP status if it has one, and its message: `APICallError, 401: Invalid
+ * API key`.
+ */
 function describeError(error: unknown): string {
   if (!(error instanceof Error)) {
     return String(error);
   }
   const { statusCode, status } = error as { statusCode?: unknown; status?: unknown };
-  const code = typeof statusCode === 'number' ? statusCode : typeof status === 'number' ? status : undefined;
+  const code =
+    typeof statusCode === 'number' ? statusCode : typeof status === 'number' ? status : undefined;
   return `${error.constructor.name}${code !== undefined ? `, ${code}` : ''}: ${error.message}`;
 }
