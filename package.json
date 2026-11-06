@@ -1,7 +1,22 @@
 {
   "name": "@nestjs/ai",
   "version": "0.0.1",
-  "description": "Nest - modern, fast, powerful node.js web framework (@ai)",
+  "description": "Language models for NestJS: model calls with timeouts, retries and fallbacks, structured output, tools and agents, and streaming to the browser.",
+  "keywords": [
+    "nestjs",
+    "nest",
+    "ai",
+    "llm",
+    "agents",
+    "ai-agent",
+    "tools",
+    "tool-calling",
+    "openai",
+    "anthropic",
+    "ai-sdk",
+    "streaming",
+    "chat"
+  ],
   "author": "Kamil Mysliwiec",
   "license": "MIT",
   "url": "https://github.com/nestjs/ai#readme",
