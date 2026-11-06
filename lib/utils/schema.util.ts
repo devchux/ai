@@ -5,7 +5,7 @@ import type { AiSchema, AiSchemaResult } from '../interfaces/ai-schema.interface
 /** JSON Schema drafts, in order of preference: what `ai` sends providers, then what MCP uses. */
 const TARGETS = ['draft-07', 'draft-2020-12'] as const;
 
-const converted = new WeakMap<object, Schema<unknown>>();
+const converted = new WeakMap<object, { schema: Schema<unknown>; rootType: unknown }>();
 
 /** The `ai` schema of a tool without arguments. */
 export const EMPTY_OBJECT_SCHEMA = jsonSchema<Record<string, never>>({
@@ -22,7 +22,10 @@ export const EMPTY_OBJECT_SCHEMA = jsonSchema<Record<string, never>>({
 export function toModelSchema<T = unknown>(schema: AiSchema, where: string, { object = false } = {}): Schema<T> {
   const cached = converted.get(schema);
   if (cached) {
-    return cached as Schema<T>;
+    if (object) {
+      assertObjectRoot(cached.rootType, where);
+    }
+    return cached.schema as Schema<T>;
   }
 
   const standard = (schema as Partial<AiSchema> | undefined)?.['~standard'];
@@ -55,10 +58,8 @@ export function toModelSchema<T = unknown>(schema: AiSchema, where: string, { ob
       `${where}: the schema cannot be converted to JSON Schema: ${(failure as Error)?.message ?? failure}`,
     );
   }
-  if (object && root.type !== undefined && root.type !== 'object') {
-    throw new AiConfigurationError(
-      `${where}: arguments are an object, and this schema describes ${JSON.stringify(root.type)}. Wrap it in z.object({ ... }).`,
-    );
+  if (object) {
+    assertObjectRoot(root.type, where);
   }
 
   const result = jsonSchema<T>(root as Parameters<typeof jsonSchema>[0], {
@@ -69,8 +70,17 @@ export function toModelSchema<T = unknown>(schema: AiSchema, where: string, { ob
         : { success: true, value: outcome.value };
     },
   });
-  converted.set(schema, result as Schema<unknown>);
+  converted.set(schema, { schema: result as Schema<unknown>, rootType: root.type });
   return result;
+}
+
+function assertObjectRoot(type: unknown, where: string): void {
+  if (type !== undefined && type !== 'object') {
+    throw new AiConfigurationError(
+      `${where}: arguments are an object, and this schema describes ${JSON.stringify(type)}. ` +
+        'Wrap it in z.object({ ... }).',
+    );
+  }
 }
 
 /** Validation issues as one line each, with their path: what the model reads to correct itself. */
