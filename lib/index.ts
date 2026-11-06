@@ -6,7 +6,7 @@ export {
   type AiModuleRootOptions,
   type AiOptionsFactory,
 } from './ai.module-definition.js';
-export { DEFAULT_MODEL_NAME, getModelToken } from './ai.constants.js';
+export { DEFAULT_MODEL_NAME, getEmbeddingModelToken, getModelToken } from './ai.constants.js';
 export type {
   AiBudget,
   AiCallDefaults,
@@ -15,10 +15,12 @@ export type {
   AiModelPricing,
   AiModuleOptions,
   AiModuleStructure,
+  AiResilienceSettings,
 } from './interfaces/index.js';
 
 // Models and model calls
 export { AiModels } from './models/ai-models.service.js';
+export { AiEmbeddingModels } from './models/ai-embedding-models.service.js';
 export { AiService } from './services/ai.service.js';
 export {
   AiTextStream,
@@ -27,6 +29,16 @@ export {
 } from './runtime/text-stream.js';
 export type {
   AiCallOptions,
+  AiEmbeddingCallOptions,
+  AiEmbeddingModelDefinition,
+  AiEmbeddingModelPricing,
+  AiEmbeddingModelReference,
+  AiEmbeddingSettings,
+  AiEmbeddingUsageEvent,
+  AiEmbedManyOptions,
+  AiEmbedManyResult,
+  AiEmbedOptions,
+  AiEmbedResult,
   AiModelInfo,
   AiModelReference,
   AiObjectCallOptions,
@@ -42,12 +54,18 @@ export type {
   InferSchemaOutput,
 } from './interfaces/index.js';
 
-// Models by injection (`@InjectModel()`); agent functions (`@AgentFunction()`), which the model is offered as tools:
-// what the methods receive, the execution context of their calls, and the registry
+// Models by injection (`@InjectModel()`); agent functions (`@AgentFunction()`), which the model is
+// offered as tools: what the methods receive, the execution context of their calls, and the
+// registry
 export * from './decorators/index.js';
 export { AiExecutionContext, type AiContextType } from './context/ai-execution-context.js';
 export { AiTools, type AiToolEntry } from './tools/ai-tools.service.js';
-export type { AgentFunctionContext, AgentFunctionOptions, AiCaller, AiToolSelection } from './interfaces/index.js';
+export type {
+  AgentFunctionContext,
+  AgentFunctionOptions,
+  AiCaller,
+  AiToolSelection,
+} from './interfaces/index.js';
 
 // Errors
 export * from './errors/index.js';
