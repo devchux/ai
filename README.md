@@ -92,7 +92,7 @@ A method that MCP clients call too also carries `@nestjs/mcp`'s `@Tool()`, with 
 
 The [sample](sample) is a cat store: it triages support emails, and runs a chat assistant that calls the same `find-order` method its MCP server serves. `npm run build && npx tsc -p sample/tsconfig.json`, then `node sample/dist/main.js` (with `ANTHROPIC_API_KEY` set, Claude answers; without it, fake models do).
 
-Read [Overview](https://docs.nestjs.com/ai/overview) to get started and for the module's options, [Models](https://docs.nestjs.com/ai/models) for retries, timeouts, fallback models and budgets, [Tools](https://docs.nestjs.com/ai/tools) for agent functions, the call context, guards and authorization, [Agents](https://docs.nestjs.com/ai/agents) for the agent loop, streaming to the browser and durable runs, and [Testing](https://docs.nestjs.com/ai/testing) for the fake model.
+Read [Overview](https://docs.nestjs.com/ai/overview) to get started and for the module's options, [Models](https://docs.nestjs.com/ai/models) for retries, timeouts, fallback models and budgets, [Tools](https://docs.nestjs.com/ai/tools) for agent functions, the call context, guards and authorization, [Agents](https://docs.nestjs.com/ai/agents) for the agent loop, streaming to the browser and durable runs, [Embeddings](https://docs.nestjs.com/ai/embeddings) for embedding models and batches, and [Testing](https://docs.nestjs.com/ai/testing) for the fake models.
 
 ## Support
 
