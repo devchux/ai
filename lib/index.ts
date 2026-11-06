@@ -54,18 +54,12 @@ export type {
   InferSchemaOutput,
 } from './interfaces/index.js';
 
-// Models by injection (`@InjectModel()`); agent functions (`@AgentFunction()`), which the model is
-// offered as tools: what the methods receive, the execution context of their calls, and the
-// registry
+// Models by injection (`@InjectModel()`); agent functions (`@AgentFunction()`), which the model is offered as tools:
+// what the methods receive, the execution context of their calls, and the registry
 export * from './decorators/index.js';
 export { AiExecutionContext, type AiContextType } from './context/ai-execution-context.js';
 export { AiTools, type AiToolEntry } from './tools/ai-tools.service.js';
-export type {
-  AgentFunctionContext,
-  AgentFunctionOptions,
-  AiCaller,
-  AiToolSelection,
-} from './interfaces/index.js';
+export type { AgentFunctionContext, AgentFunctionOptions, AiCaller, AiToolSelection } from './interfaces/index.js';
 
 // Errors
 export * from './errors/index.js';

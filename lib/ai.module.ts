@@ -13,9 +13,9 @@ import { AiService } from './services/ai.service.js';
 import { AiTools } from './tools/ai-tools.service.js';
 
 /**
- * `AiModule.forRoot({ models: { default: ... } })`, or `forRootAsync({ imports, inject, useFactory
- * })`: the application's models by name, `AiService` for model calls, and the `@AgentFunction()`
- * methods of its providers, which its agents call as tools. Global with `isGlobal: true`.
+ * `AiModule.forRoot({ models: { default: ... } })`, or `forRootAsync({ imports, inject, useFactory })`: the
+ * application's models by name, `AiService` for model calls, and the `@AgentFunction()` methods of its providers,
+ * which its agents call as tools. Global with `isGlobal: true`.
  */
 @Module({
   imports: [DiscoveryModule],
@@ -34,11 +34,7 @@ export class AiModule extends ConfigurableModuleClass {
     // `@InjectModel()` may ask for every model `forRoot()` names.
     const modelNames = Object.keys(options?.models ?? {});
     const embeddingModelNames = Object.keys(options?.embeddingModels ?? {});
-    return super.forRoot({
-      ...options,
-      modelNames,
-      embeddingModelNames,
-    } as typeof OPTIONS_TYPE);
+    return super.forRoot({ ...options, modelNames, embeddingModelNames } as typeof OPTIONS_TYPE);
   }
 
   static forRootAsync(options: AiModuleAsyncOptions): DynamicModule {

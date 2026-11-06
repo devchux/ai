@@ -42,9 +42,7 @@ export interface AiStep {
 export interface AiTextResult {
   /** The text of the last step. */
   text: string;
-  /**
-   * The last step's: `tool-calls` when `maxSteps` ran out while the model still asked for tools.
-   */
+  /** The last step's: `tool-calls` when `maxSteps` ran out while the model still asked for tools. */
   finishReason: FinishReason;
   steps: AiStep[];
   /** Summed over the steps. */

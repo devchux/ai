@@ -34,9 +34,7 @@ export class AiModels {
     assertModelRegistries(options);
     const models = options.models ?? {};
     for (const [name, entry] of Object.entries(models)) {
-      const { model, pricing, fallback, ...settings } = isDefinition(entry)
-        ? entry
-        : { model: entry };
+      const { model, pricing, fallback, ...settings } = isDefinition(entry) ? entry : { model: entry };
       assertModel(model, `AiModule: the model "${name}"`);
       const replacement = overrides?.[name];
       const used = replacement ?? model;
@@ -50,18 +48,13 @@ export class AiModels {
     }
     for (const name of Object.keys(overrides ?? {})) {
       if (!this.models.has(name)) {
-        throw new AiConfigurationError(
-          `overrideModels(): there is no model "${name}" to override. ${this.known()}`,
-        );
+        throw new AiConfigurationError(`overrideModels(): there is no model "${name}" to override. ${this.known()}`);
       }
     }
     for (const [name, resolved] of this.models) {
       for (const next of resolved.fallback) {
         if (!this.models.has(next)) {
-          throw new AiConfigurationError(
-            `AiModule: the model "${name}" falls back to "${next}", which is not configured. ` +
-              this.known(),
-          );
+          throw new AiConfigurationError(`AiModule: the model "${name}" falls back to "${next}", which is not configured. ${this.known()}`);
         }
       }
     }
@@ -82,20 +75,14 @@ export class AiModels {
     return this.models.has(name);
   }
 
-  /**
-   * @internal What `@InjectModel(name)` injects into `inquirer`; a name that is not configured
-   * fails at startup.
-   */
+  /** @internal What `@InjectModel(name)` injects into `inquirer`; a name that is not configured fails at startup. */
   injected(name: string, inquirer: unknown): LanguageModel {
     const resolved = this.models.get(name);
     if (!resolved) {
-      const requester = (inquirer as { constructor?: { name?: string } } | undefined)?.constructor
-        ?.name;
+      const requester = (inquirer as { constructor?: { name?: string } } | undefined)?.constructor?.name;
       throw new AiConfigurationError(
-        `${requester ? `${requester}: ` : ''}@InjectModel('${name}') ` +
-          'asks for a model AiModule does not configure. ' +
-          `${this.known()} Add "${name}" to \`models\` ` +
-          '(in forRootAsync(), to what the factory returns).',
+        `${requester ? `${requester}: ` : ''}@InjectModel('${name}') asks for a model AiModule does not configure. ` +
+          `${this.known()} Add "${name}" to \`models\` (in forRootAsync(), to what the factory returns).`,
       );
     }
     return resolved.model;
@@ -121,24 +108,16 @@ export class AiModels {
 }
 
 function isDefinition(entry: LanguageModel | AiModelDefinition): entry is AiModelDefinition {
-  return (
-    typeof entry === 'object' &&
-    entry !== null &&
-    'model' in entry &&
-    !('specificationVersion' in entry)
-  );
+  return typeof entry === 'object' && entry !== null && 'model' in entry && !('specificationVersion' in entry);
 }
 
 function assertModel(model: unknown, where: string): void {
   const valid =
     (typeof model === 'string' && model.length > 0) ||
-    (typeof model === 'object' &&
-      model !== null &&
-      typeof (model as { doGenerate?: unknown }).doGenerate === 'function');
+    (typeof model === 'object' && model !== null && typeof (model as { doGenerate?: unknown }).doGenerate === 'function');
   if (!valid) {
     throw new AiConfigurationError(
-      `${where} is not a language model. Pass one from a provider package, ` +
-        "e.g. anthropic('claude-opus-5-5') from @ai-sdk/anthropic.",
+      `${where} is not a language model. Pass one from a provider package, e.g. anthropic('claude-opus-5-5') from @ai-sdk/anthropic.`,
     );
   }
 }

@@ -1,8 +1,7 @@
 /**
- * The model names `@InjectModel()` asks for, recorded as the decorators run. `AiModule` provides a
- * token for each name asked for by the time it is defined (with `modelNames` and the names it
- * configures), so that a name it does not configure fails with a message of its own, not with
- * Nest's missing-provider error.
+ * The model names `@InjectModel()` asks for, recorded as the decorators run. `AiModule` provides a token for each
+ * name asked for by the time it is defined (with `modelNames` and the names it configures), so that a name it does
+ * not configure fails with a message of its own, not with Nest's missing-provider error.
  */
 const requested = new Set<string>();
 const requestedEmbeddings = new Set<string>();
