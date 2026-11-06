@@ -250,6 +250,51 @@ describe('durable agent runs', () => {
   /** A model that looks the order up again and again, and never answers. */
   const lookingForever = () => new FakeModel(() => ({ toolCalls: [{ name: 'find-order', input: { orderId: 'ord_1' } }] }));
 
+  it('accepts one model call per run and per workflow instance', async () => {
+    const model = lookingForever();
+    const { client, worker } = await boot(model);
+    await client.start(
+      RefundRequest,
+      { email: 'Where is ord_1?', customer: 'alice', maxSteps: 1, stepsPerInstance: 1 },
+      { id: 'one-step' },
+    );
+    await worker.drain();
+
+    const status = await client.getStatus('one-step', { children: true });
+    expect(status).toMatchObject({
+      status: 'completed', output: { finishReason: 'tool-calls' },
+    });
+    expect(status!.children ?? []).toHaveLength(0);
+    expect(model.calls).toHaveLength(1);
+    expect(world.calls).toHaveLength(1);
+  });
+
+  it.each(['maxSteps', 'stepsPerInstance'] as const)(
+    'fails an invalid %s without starting a model or child workflow',
+    async (name) => {
+      const model = lookingForever();
+      const { client, worker } = await boot(model);
+      await client.start(
+        RefundRequest,
+        { email: 'Where is ord_1?', customer: 'alice', [name]: 0 },
+        { id: 'invalid-limit' },
+      );
+      await worker.drain({ maxRounds: 2 });
+
+      const status = await client.getStatus('invalid-limit', {
+        journal: true, children: true,
+      });
+      expect(status).toMatchObject({
+        status: 'failed',
+        error: { message: `\`${name}\` must be a whole number of at least 1. Got 0.` },
+      });
+      expect(status!.journal).toHaveLength(0);
+      expect(status!.children ?? []).toHaveLength(0);
+      expect(model.calls).toHaveLength(0);
+      expect(world.calls).toHaveLength(0);
+    },
+  );
+
   it("stops after the module's defaults.maxSteps, unless the run sets its own", async () => {
     const model = lookingForever();
     const { client, worker } = await boot(model, { maxSteps: 2 });

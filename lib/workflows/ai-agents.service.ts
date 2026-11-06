@@ -246,13 +246,22 @@ export class AiAgents {
       }
     }
     const defaults = this.defaults();
+    const maxSteps = options.maxSteps ?? defaults.maxSteps ?? DEFAULT_MAX_STEPS;
+    const stepsPerInstance = options.stepsPerInstance ?? DEFAULT_STEPS_PER_INSTANCE;
+    for (const [name, value] of Object.entries({ maxSteps, stepsPerInstance })) {
+      if (!Number.isInteger(value) || value < 1) {
+        throw new AiConfigurationError(
+          `\`${name}\` must be a whole number of at least 1. Got ${String(value)}.`,
+        );
+      }
+    }
     const budget = options.budget ?? defaults.budget;
     return {
       ...rest,
       tools: names,
       approve,
-      maxSteps: options.maxSteps ?? defaults.maxSteps ?? DEFAULT_MAX_STEPS,
-      stepsPerInstance: options.stepsPerInstance ?? DEFAULT_STEPS_PER_INSTANCE,
+      maxSteps,
+      stepsPerInstance,
       ...(budget && { budget }),
     };
   }

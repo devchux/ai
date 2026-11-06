@@ -32,11 +32,15 @@ export interface AiAgentRunOptions {
   /** How long a call waits for its approval. Default: until it gets one (or the workflow's own timeout). */
   approvalTimeout?: Duration;
   caller?: AiAgentCaller;
-  /** Model calls the run may make while the model asks for tools. Default: `defaults.maxSteps`, else 25. */
+  /**
+   * Model calls the run may make while the model asks for tools. A whole number of at least 1.
+   * Default: `defaults.maxSteps`, else 25.
+   */
   maxSteps?: number;
   /**
-   * Model calls per workflow instance: after that many, the run goes on in a child workflow, which keeps each
-   * instance's journal small (a journal is replayed on every resume, and capped). Default 10.
+   * Model calls per workflow instance: after that many, the run goes on in a child workflow,
+   * which keeps each instance's journal small (a journal is replayed on every resume, and capped).
+   * A whole number of at least 1. Default 10.
    */
   stepsPerInstance?: number;
   /** `maxTokens` and `maxCost`, over the whole run. Default: the module's `defaults.budget`. */
