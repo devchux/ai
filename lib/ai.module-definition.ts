@@ -5,16 +5,17 @@ import type {
   AiModuleStructure,
   AiOptionsFactory,
 } from './interfaces/ai-module-options.interface.js';
-import { AI_MODULE_OPTIONS, getModelToken } from './ai.constants.js';
+import { AI_MODULE_OPTIONS, getEmbeddingModelToken, getModelToken } from './ai.constants.js';
 import { AiModels } from './models/ai-models.service.js';
-import { requestedModelNames } from './models/model-requests.js';
+import { AiEmbeddingModels } from './models/ai-embedding-models.service.js';
+import { requestedEmbeddingModelNames, requestedModelNames } from './models/model-requests.js';
 
 /** `forRoot()`'s options: the module options, and `isGlobal` (default false). */
 export type AiModuleRootOptions = AiModuleOptions & { isGlobal?: boolean };
 
 /**
- * What `forRootAsync()` takes: `modelNames` and `isGlobal` at the top level, and one of `useFactory`, `useClass` or
- * `useExisting` for the options.
+ * What `forRootAsync()` takes: `modelNames`, `embeddingModelNames` and `isGlobal` at the top level, and one of
+ * `useFactory`, `useClass` or `useExisting` for the options.
  */
 export type AiModuleAsyncOptions = ConfigurableModuleAsyncOptions<AiModuleOptions, 'createAiOptions'> &
   AiModuleStructure & { isGlobal?: boolean };
@@ -30,8 +31,8 @@ export const { ConfigurableModuleClass, OPTIONS_TYPE, ASYNC_OPTIONS_TYPE } = new
   .setClassMethodName('forRoot')
   .setFactoryMethodName('createAiOptions')
   .setExtras<AiModuleStructure & { isGlobal?: boolean }>(
-    { isGlobal: false, modelNames: undefined },
-    (definition, { isGlobal, modelNames }) => {
+    { isGlobal: false, modelNames: undefined, embeddingModelNames: undefined },
+    (definition, { isGlobal, modelNames, embeddingModelNames }) => {
       const names = new Set([...(modelNames ?? []), ...requestedModelNames()]);
       // Transient, so that each class that injects a model is known (INQUIRER), and one that asks for a model the
       // module does not configure is named in the error.
@@ -43,11 +44,21 @@ export const { ConfigurableModuleClass, OPTIONS_TYPE, ASYNC_OPTIONS_TYPE } = new
           useFactory: (models: AiModels, inquirer: unknown) => models.injected(name, inquirer),
         }),
       );
+      const embeddingNames = new Set([...(embeddingModelNames ?? []), ...requestedEmbeddingModelNames()]);
+      const embeddingTokens = [...embeddingNames].map(
+        (name): Provider => ({
+          provide: getEmbeddingModelToken(name),
+          scope: Scope.TRANSIENT,
+          inject: [AiEmbeddingModels, INQUIRER],
+          useFactory: (models: AiEmbeddingModels, inquirer: unknown) => models.injected(name, inquirer),
+        }),
+      );
+      const allTokens = [...tokens, ...embeddingTokens];
       return {
         ...definition,
         global: isGlobal,
-        providers: [...(definition.providers ?? []), ...tokens],
-        exports: [...(definition.exports ?? []), ...tokens.map((provider) => (provider as { provide: string }).provide)],
+        providers: [...(definition.providers ?? []), ...allTokens],
+        exports: [...(definition.exports ?? []), ...allTokens.map((provider) => (provider as { provide: string }).provide)],
       };
     },
   )

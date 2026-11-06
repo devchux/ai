@@ -1,6 +1,6 @@
 import { Module, type DynamicModule } from '@nestjs/common';
 import { DiscoveryModule } from '@nestjs/core';
-import { AI_MODEL_OVERRIDES } from './ai.constants.js';
+import { AI_EMBEDDING_MODEL_OVERRIDES, AI_MODEL_OVERRIDES } from './ai.constants.js';
 import {
   ConfigurableModuleClass,
   type AiModuleAsyncOptions,
@@ -8,6 +8,7 @@ import {
   type OPTIONS_TYPE,
 } from './ai.module-definition.js';
 import { AiModels } from './models/ai-models.service.js';
+import { AiEmbeddingModels } from './models/ai-embedding-models.service.js';
 import { AiService } from './services/ai.service.js';
 import { AiTools } from './tools/ai-tools.service.js';
 
@@ -18,14 +19,22 @@ import { AiTools } from './tools/ai-tools.service.js';
  */
 @Module({
   imports: [DiscoveryModule],
-  providers: [AiModels, AiTools, AiService, { provide: AI_MODEL_OVERRIDES, useValue: null }],
-  exports: [AiModels, AiTools, AiService],
+  providers: [
+    AiModels,
+    AiEmbeddingModels,
+    AiTools,
+    AiService,
+    { provide: AI_MODEL_OVERRIDES, useValue: null },
+    { provide: AI_EMBEDDING_MODEL_OVERRIDES, useValue: null },
+  ],
+  exports: [AiModels, AiEmbeddingModels, AiTools, AiService],
 })
 export class AiModule extends ConfigurableModuleClass {
   static forRoot(options: AiModuleRootOptions): DynamicModule {
     // `@InjectModel()` may ask for every model `forRoot()` names.
     const modelNames = Object.keys(options?.models ?? {});
-    return super.forRoot({ ...options, modelNames } as typeof OPTIONS_TYPE);
+    const embeddingModelNames = Object.keys(options?.embeddingModels ?? {});
+    return super.forRoot({ ...options, modelNames, embeddingModelNames } as typeof OPTIONS_TYPE);
   }
 
   static forRootAsync(options: AiModuleAsyncOptions): DynamicModule {

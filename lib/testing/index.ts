@@ -8,12 +8,20 @@
  */
 import type { INestApplicationContext } from '@nestjs/common';
 import type { TestingModuleBuilder } from '@nestjs/testing';
-import type { LanguageModel } from 'ai';
-import { AI_MODEL_OVERRIDES } from '../ai.constants.js';
+import type { EmbeddingModel, LanguageModel } from 'ai';
+import { AI_EMBEDDING_MODEL_OVERRIDES, AI_MODEL_OVERRIDES } from '../ai.constants.js';
 import type { AiCaller } from '../interfaces/ai-tool.interface.js';
 import { AiTools } from '../tools/ai-tools.service.js';
 
 export { FakeModel, fakeModel, providerError, type FakeAnswer, type FakeModelCall, type FakeToolCall, type FakeTurn } from './fake-model.js';
+export {
+  FakeEmbeddingModel,
+  fakeEmbeddingModel,
+  type FakeEmbeddingAnswer,
+  type FakeEmbeddingModelCall,
+  type FakeEmbeddingModelOptions,
+  type FakeEmbeddingTurn,
+} from './fake-embedding-model.js';
 
 /**
  * Replaces configured models by name (`{ default: new FakeModel([...]) }`) in a testing module, keeping their other
@@ -21,6 +29,17 @@ export { FakeModel, fakeModel, providerError, type FakeAnswer, type FakeModelCal
  */
 export function overrideModels(builder: TestingModuleBuilder, models: Record<string, LanguageModel>): TestingModuleBuilder {
   return builder.overrideProvider(AI_MODEL_OVERRIDES).useValue(models);
+}
+
+/**
+ * Replaces configured embedding models by name, preserving their settings and pricing. Unknown
+ * names fail at startup.
+ */
+export function overrideEmbeddingModels(
+  builder: TestingModuleBuilder,
+  models: Record<string, EmbeddingModel>,
+): TestingModuleBuilder {
+  return builder.overrideProvider(AI_EMBEDDING_MODEL_OVERRIDES).useValue(models);
 }
 
 /**

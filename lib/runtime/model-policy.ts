@@ -19,11 +19,17 @@ import {
   type AiAttemptFailure,
 } from '../errors/ai.errors.js';
 import type { ResolvedModel } from '../models/ai-models.service.js';
+import type { AiModelInfo } from '../interfaces/ai-result.interface.js';
 import { toMilliseconds } from '../utils/duration.util.js';
 
+/** The identity the policy layer needs; generation and embedding registries stay separately typed. */
+export interface PolicyModel {
+  info: AiModelInfo;
+}
+
 /** What one attempt of a model call receives. */
-export interface StepAttempt {
-  model: ResolvedModel;
+export interface StepAttempt<M extends PolicyModel = ResolvedModel> {
+  model: M;
   /** 1-based, per model. */
   attempt: number;
   fallback: boolean;
@@ -36,18 +42,18 @@ export interface StepAttempt {
 }
 
 /** How a call's models are retried, timed out and replaced. Internal. */
-export interface PolicyPlan {
-  chain: ResolvedModel[];
+export interface PolicyPlan<M extends PolicyModel = ResolvedModel> {
+  chain: M[];
   /** The caller's signal. */
   signal: AbortSignal;
   /** Labels the policies' events (`source`). */
   source: string;
   /** The model's own policy: an application's, or the one built from its `retry` and `timeout`. */
-  policyFor(model: ResolvedModel): ResiliencePolicy | undefined;
+  policyFor(model: M): ResiliencePolicy | undefined;
   fallbackIf: (error: unknown) => boolean;
 }
 
-type StepEvent<T> = { type: 'commit' } | { type: 'chunk'; chunk: unknown } | { type: 'outcome'; value: T; attempt: StepAttempt };
+type StepEvent<T, M extends PolicyModel> = { type: 'commit' } | { type: 'chunk'; chunk: unknown } | { type: 'outcome'; value: T; attempt: StepAttempt<M> };
 
 const logger = new Logger('AiModule');
 
@@ -61,16 +67,16 @@ const CALLER_MISTAKES = new Set(['AI_InvalidPromptError', 'AI_InvalidArgumentErr
  * every attempt, the caller's abort reason, or what is not a model failure (an `AiOutputError`, a circuit breaker's
  * rejection) as it is.
  */
-export function runStep<T>(
-  plan: PolicyPlan,
-  run: (attempt: StepAttempt) => Promise<T>,
+export function runStep<T, M extends PolicyModel = ResolvedModel>(
+  plan: PolicyPlan<M>,
+  run: (attempt: StepAttempt<M>) => Promise<T>,
   emit?: (chunk: unknown) => void,
-): Promise<{ value: T; attempt: StepAttempt; attempts: number }> {
+): Promise<{ value: T; attempt: StepAttempt<M>; attempts: number }> {
   const failures: AiAttemptFailure[] = [];
   let attempts = 0;
 
   const attemptsOf = (index: number) => (context: { signal: AbortSignal; attempt: number }) =>
-    new Observable<StepEvent<T>>((subscriber) => {
+    new Observable<StepEvent<T, M>>((subscriber) => {
       attempts++;
       const model = plan.chain[index]!;
       let settled = false;
@@ -83,7 +89,7 @@ export function runStep<T>(
           failures.push({ model: model.info, attempt: context.attempt, error: reason instanceof ResilienceTimeoutError ? reason : unwrap(error) });
         }
       };
-      const attempt: StepAttempt = {
+      const attempt: StepAttempt<M> = {
         model,
         attempt: context.attempt,
         fallback: index > 0,
@@ -120,7 +126,7 @@ export function runStep<T>(
     const policies: ResiliencePolicy[] = [];
     if (index < plan.chain.length - 1) {
       policies.push(
-        new FallbackPolicy<StepEvent<T>>(
+        new FallbackPolicy<StepEvent<T, M>>(
           (error, context) => {
             // A fallback that works must not hide why the model failed: a revoked key, a refused request.
             logger.warn(`The model "${labelOf(model)}" failed (${describeError(error)}); falling back to "${labelOf(plan.chain[index + 1]!)}".`);
@@ -141,7 +147,7 @@ export function runStep<T>(
   const signal = ambient ? AbortSignal.any([plan.signal, ambient]) : plan.signal;
 
   return new Promise((resolve, reject) => {
-    let outcome: { value: T; attempt: StepAttempt } | undefined;
+    let outcome: { value: T; attempt: StepAttempt<M> } | undefined;
     policyAt(0)
       .executeObservable(attemptsOf(0), { signal, source: plan.source })
       .subscribe({
@@ -163,15 +169,16 @@ export function runStep<T>(
  * `TimeoutPolicy`, either one left out when it is `false`.
  */
 export function modelPolicy(
-  model: ResolvedModel,
+  model: PolicyModel,
   { retry, timeout }: { retry: RetryOptions | false | undefined; timeout: number | string | false | undefined },
+  namespace = 'ai',
 ): ResiliencePolicy | undefined {
   const policies: ResiliencePolicy[] = [];
   if (retry !== false) {
-    policies.push(retryPolicy(model, retry ?? {}));
+    policies.push(retryPolicy(model, retry ?? {}, namespace));
   }
   if (timeout !== false) {
-    policies.push(new TimeoutPolicy({ timeout: toMilliseconds(timeout ?? DEFAULT_TIMEOUT, 'timeout'), name: `${nameOf(model)} timeout` }));
+    policies.push(new TimeoutPolicy({ timeout: toMilliseconds(timeout ?? DEFAULT_TIMEOUT, 'timeout'), name: `${nameOf(model, namespace)} timeout` }));
   }
   return policies.length > 0 ? ResiliencePolicy.wrap(...policies) : undefined;
 }
@@ -179,13 +186,13 @@ export function modelPolicy(
 const DEFAULT_TIMEOUT = '60s';
 const DEFAULT_BACKOFF = { delay: 1_000, factor: 2, maxDelay: 30_000 };
 
-function retryPolicy(model: ResolvedModel, retry: RetryOptions): RetryPolicy {
+function retryPolicy(model: PolicyModel, retry: RetryOptions, namespace: string): RetryPolicy {
   const backoff = retry.backoff;
   const maxDelay =
     typeof backoff === 'object' && backoff.maxDelay !== undefined ? toMilliseconds(backoff.maxDelay, 'retry.backoff.maxDelay') : DEFAULT_BACKOFF.maxDelay;
   const retryIf = retry.retryIf ?? isRetryable;
   return new RetryPolicy({
-    name: `${nameOf(model)} retry`,
+    name: `${nameOf(model, namespace)} retry`,
     attempts: retry.attempts ?? 3,
     ...(retry.retryOnResult && { retryOnResult: retry.retryOnResult }),
     // A provider that asks for a longer wait than the backoff allows: on to the fallback.
@@ -267,11 +274,11 @@ function retryAfter(error: unknown): number | undefined {
   return Number.isNaN(date) ? undefined : Math.max(0, date - Date.now());
 }
 
-function nameOf(model: ResolvedModel): string {
-  return `ai:${labelOf(model)}`;
+function nameOf(model: PolicyModel, namespace = 'ai'): string {
+  return `${namespace}:${labelOf(model)}`;
 }
 
-function labelOf(model: ResolvedModel): string {
+function labelOf(model: PolicyModel): string {
   return model.info.name ?? `${model.info.provider}:${model.info.modelId}`;
 }
 

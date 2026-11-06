@@ -24,7 +24,19 @@ export const DEFAULT_MODEL_NAME = 'default';
 /** Models that replace configured ones by name, from `@nestjs/ai/testing`'s `overrideModels()`. Internal. */
 export const AI_MODEL_OVERRIDES = Symbol('AI_MODEL_OVERRIDES');
 
+/**
+ * Embedding-model replacements from `@nestjs/ai/testing`'s `overrideEmbeddingModels()`. Internal.
+ */
+export const AI_EMBEDDING_MODEL_OVERRIDES = Symbol('AI_EMBEDDING_MODEL_OVERRIDES');
+
 /** The injection token of the model called `name`, which `@InjectModel(name)` injects. */
 export function getModelToken(name: string = DEFAULT_MODEL_NAME): string {
   return `nestjs:ai:model:${name}`;
+}
+
+/**
+ * The injection token of the embedding model called `name`, independent of language-model names.
+ */
+export function getEmbeddingModelToken(name: string = DEFAULT_MODEL_NAME): string {
+  return `nestjs:ai:embedding-model:${name}`;
 }

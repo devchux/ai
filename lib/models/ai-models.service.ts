@@ -10,6 +10,7 @@ import type {
 } from '../interfaces/ai-module-options.interface.js';
 import type { AiModelInfo } from '../interfaces/ai-result.interface.js';
 import { AI_MODEL_OVERRIDES, AI_MODULE_OPTIONS, DEFAULT_MODEL_NAME } from '../ai.constants.js';
+import { assertModelRegistries } from './model-registry.util.js';
 
 /** A model, as calls use it. Internal. */
 export interface ResolvedModel {
@@ -30,12 +31,8 @@ export class AiModels {
     @Inject(AI_MODULE_OPTIONS) options: AiModuleOptions,
     @Optional() @Inject(AI_MODEL_OVERRIDES) overrides?: Record<string, LanguageModel> | null,
   ) {
-    const models = options?.models;
-    if (typeof models !== 'object' || models === null || Object.keys(models).length === 0) {
-      throw new AiConfigurationError(
-        'AiModule: `models` must name at least one model, e.g. { default: anthropic("claude-opus-5-5") }.',
-      );
-    }
+    assertModelRegistries(options);
+    const models = options.models ?? {};
     for (const [name, entry] of Object.entries(models)) {
       const { model, pricing, fallback, ...settings } = isDefinition(entry) ? entry : { model: entry };
       assertModel(model, `AiModule: the model "${name}"`);

@@ -3,7 +3,10 @@ import type { AiUsage } from './ai-usage.interface.js';
 
 /** Which model answered. */
 export interface AiModelInfo {
-  /** Its name in `forRoot({ models })`; `undefined` for a `LanguageModel` passed to the call. */
+  /**
+   * Its name in `models` or `embeddingModels`; `undefined` for an SDK model object passed directly
+   * to the call.
+   */
   name?: string;
   provider: string;
   modelId: string;

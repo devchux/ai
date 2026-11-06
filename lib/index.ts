@@ -6,7 +6,7 @@ export {
   type AiModuleRootOptions,
   type AiOptionsFactory,
 } from './ai.module-definition.js';
-export { DEFAULT_MODEL_NAME, getModelToken } from './ai.constants.js';
+export { DEFAULT_MODEL_NAME, getEmbeddingModelToken, getModelToken } from './ai.constants.js';
 export type {
   AiBudget,
   AiCallDefaults,
@@ -15,10 +15,12 @@ export type {
   AiModelPricing,
   AiModuleOptions,
   AiModuleStructure,
+  AiResilienceSettings,
 } from './interfaces/index.js';
 
 // Models and model calls
 export { AiModels } from './models/ai-models.service.js';
+export { AiEmbeddingModels } from './models/ai-embedding-models.service.js';
 export { AiService } from './services/ai.service.js';
 export {
   AiTextStream,
@@ -27,6 +29,16 @@ export {
 } from './runtime/text-stream.js';
 export type {
   AiCallOptions,
+  AiEmbeddingCallOptions,
+  AiEmbeddingModelDefinition,
+  AiEmbeddingModelPricing,
+  AiEmbeddingModelReference,
+  AiEmbeddingSettings,
+  AiEmbeddingUsageEvent,
+  AiEmbedManyOptions,
+  AiEmbedManyResult,
+  AiEmbedOptions,
+  AiEmbedResult,
   AiModelInfo,
   AiModelReference,
   AiObjectCallOptions,

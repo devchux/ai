@@ -5,13 +5,20 @@ import type { ModelMessage, UIMessageChunk } from 'ai';
 import { AI_MODULE_OPTIONS } from '../ai.constants.js';
 import { AiConfigurationError, AiOutputError } from '../errors/ai.errors.js';
 import type { AiCallOptions, AiObjectCallOptions } from '../interfaces/ai-call-options.interface.js';
+import type {
+  AiEmbedOptions,
+  AiEmbedManyOptions,
+  AiEmbedResult,
+  AiEmbedManyResult,
+} from '../interfaces/ai-embedding.interface.js';
 import type { AiModuleOptions } from '../interfaces/ai-module-options.interface.js';
 import type { AiObjectResult, AiTextResult } from '../interfaces/ai-result.interface.js';
 import type { AiSchema, InferSchemaOutput } from '../interfaces/ai-schema.interface.js';
-import type { AiUsageEvent } from '../interfaces/ai-usage.interface.js';
 import { AiModels } from '../models/ai-models.service.js';
+import { AiEmbeddingModels } from '../models/ai-embedding-models.service.js';
 import { runLoop, usageEvent } from '../runtime/agent-loop.js';
 import { createCallPlan, type CallPlan } from '../runtime/call-plan.js';
+import { createEmbeddingPlan, runEmbedding } from '../runtime/embedding-call.js';
 import { runStep } from '../runtime/model-policy.js';
 import { generateStep, type StepOutcome } from '../runtime/steps.js';
 import { AiTextStream } from '../runtime/text-stream.js';
@@ -37,7 +44,54 @@ export class AiService {
     private readonly tools: AiTools,
     @Inject(AI_MODULE_OPTIONS) private readonly options: AiModuleOptions,
     private readonly moduleRef: ModuleRef,
+    private readonly embeddingModels: AiEmbeddingModels,
   ) {}
+
+  /**
+   * Embeds one string, with the embedding model's settings, Nest policies and embedding usage
+   * events.
+   */
+  async embed(options: AiEmbedOptions): Promise<AiEmbedResult> {
+    const plan = createEmbeddingPlan(options, this.embeddingModels, this.options, (name) =>
+      this.preset(name),
+    );
+    const { result, event, attempts, cost } = await runEmbedding(plan, { value: options.value });
+    this.report(plan, event, 'onEmbeddingUsage');
+    return {
+      value: result.value,
+      embedding: result.embedding,
+      usage: result.usage,
+      warnings: result.warnings,
+      ...(result.response !== undefined && { response: result.response }),
+      ...(result.providerMetadata !== undefined && { providerMetadata: result.providerMetadata }),
+      model: plan.model.info,
+      attempts,
+      ...(cost !== undefined && { cost }),
+    };
+  }
+
+  /**
+   * Embeds strings in input order; the SDK batches requests, with bounded concurrency (default 4).
+   * Timeouts, retries and policies apply to each request.
+   */
+  async embedMany(options: AiEmbedManyOptions): Promise<AiEmbedManyResult> {
+    const plan = createEmbeddingPlan(options, this.embeddingModels, this.options, (name) =>
+      this.preset(name),
+    );
+    const { result, event, attempts, cost } = await runEmbedding(plan, { values: options.values });
+    this.report(plan, event, 'onEmbeddingUsage');
+    return {
+      values: result.values,
+      embeddings: result.embeddings,
+      usage: result.usage,
+      warnings: result.warnings,
+      ...(result.responses !== undefined && { responses: result.responses }),
+      ...(result.providerMetadata !== undefined && { providerMetadata: result.providerMetadata }),
+      model: plan.model.info,
+      attempts,
+      ...(cost !== undefined && { cost }),
+    };
+  }
 
   /** Generates text; with `tools`, calls them as the model asks, and answers when it is done. */
   async generateText(options: AiCallOptions): Promise<AiTextResult> {
@@ -132,17 +186,17 @@ export class AiService {
   }
 
   /** Calls the usage listeners. They never fail the call: what they throw is logged. */
-  private report(plan: CallPlan, event: AiUsageEvent): void {
+  private report<T>(plan: { listeners: Array<(event: T) => void | Promise<void>> }, event: T, hook = 'onUsage'): void {
     for (const listener of plan.listeners) {
       try {
-        Promise.resolve(listener(event)).catch((error: unknown) => this.logListenerError(error));
+        Promise.resolve(listener(event)).catch((error: unknown) => this.logListenerError(error, hook));
       } catch (error) {
-        this.logListenerError(error);
+        this.logListenerError(error, hook);
       }
     }
   }
 
-  private logListenerError(error: unknown) {
-    this.logger.error(`onUsage failed: ${(error as Error)?.message ?? String(error)}`, (error as Error)?.stack);
+  private logListenerError(error: unknown, hook: string) {
+    this.logger.error(`${hook} failed: ${(error as Error)?.message ?? String(error)}`, (error as Error)?.stack);
   }
 }
